@@ -1,0 +1,12 @@
+Dimmer OfficeFan "Office Fan [%s]" { http=">[OFF:POST:http://127.0.0.1:3350/fans/office/fanspeed:0] >[1:POST:http://127.0.0.1:3350/fans/office/fanspeed:1] >[2:POST:http://127.0.0.1:3350/fans/office/fanspeed:2] >[3:POST:http://127.0.0.1:3350/fans/office/fanspeed:3] >[ON:POST:http://127.0.0.1:3350/fans/office/fanspeed:2]" }
+Switch OfficeLight "Office Light" [Lighting] { http=">[*:POST:http://127.0.0.1:3350/lights/office:default]" }
+
+Dimmer BedroomFan "Bedroom Fan [%s]" { http=">[OFF:POST:http://127.0.0.1:3350/fans/bedroom/fanspeed:0] >[1:POST:http://127.0.0.1:3350/fans/bedroom/fanspeed:1] >[2:POST:http://127.0.0.1:3350/fans/bedroom/fanspeed:2] >[3:POST:http://127.0.0.1:3350/fans/bedroom/fanspeed:3] >[ON:POST:http://127.0.0.1:3350/fans/bedroom/fanspeed:2]" }
+Switch BedroomLight "Bedroom Light" [Lighting] { http=">[*:POST:http://127.0.0.1:3350/lights/bedroom:default]" }
+
+Dimmer LivingRoomFan "Living Room Fan [%s]" { http=">[OFF:POST:http://127.0.0.1:3350/fans/livingroom/fanspeed:0] >[1:POST:http://127.0.0.1:3350/fans/livingroom/fanspeed:1] >[2:POST:http://127.0.0.1:3350/fans/livingroom/fanspeed:2] >[3:POST:http://127.0.0.1:3350/fans/livingroom/fanspeed:3] >[ON:POST:http://127.0.0.1:3350/fans/livingroom/fanspeed:2]" }
+Switch LivingRoomLight "Living Room  Light" [Lighting] { http=">[*:POST:http://127.0.0.1:3350/lights/livingroom:default]" }
+
+Dimmer DiningRoomFan "Dining Room Fan [%s]" { http=">[OFF:POST:http://127.0.0.1:3350/fans/diningroom/fanspeed:0] >[1:POST:http://127.0.0.1:3350/fans/diningroom/fanspeed:1] >[2:POST:http://127.0.0.1:3350/fans/diningroom/fanspeed:2] >[3:POST:http://127.0.0.1:3350/fans/diningroom/fanspeed:3] >[ON:POST:http://127.0.0.1:3350/fans/diningroom/fanspeed:2]" }
+Switch DiningRoomLight "Dining Room  Light" [Lighting] { http=">[*:POST:http://127.0.0.1:3350/lights/diningroom:default]" }
+
