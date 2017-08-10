@@ -1,13 +1,13 @@
 sitemap default label="Main Menu"
 {
         Frame  {
-                Switch item=OfficeLight
+                Switch item=OfficeLight mappings=[OFF="Off", ON="On"]
                 Switch item=OfficeFan mappings=[OFF="Off", 1="Low", 2="Med", 3="High"]
-                Switch item=BedroomLight
+                Switch item=BedroomLight mappings=[OFF="Off", ON="On"]
                 Switch item=BedroomFan mappings=[OFF="Off", 1="Low", 2="Med", 3="High"]
-                Switch item=LivingRoomLight
+                Switch item=LivingRoomLight mappings=[OFF="Off", ON="On"]
                 Switch item=LivingRoomFan mappings=[OFF="Off", 1="Low", 2="Med", 3="High"]
-                Switch item=DiningRoomLight
+                Switch item=DiningRoomLight mappings=[OFF="Off", ON="On"]
                 Switch item=DiningRoomFan mappings=[OFF="Off", 1="Low", 2="Med", 3="High"]
         }
 }
