@@ -3,10 +3,19 @@
 import sys
 import time
 import bottle
+import functools
+from operator import itemgetter
+import os.path
+import signal
+import re
 from rflib import *
 from struct import *
+
 baudRate = 5280
-d = None
+rssi_threshold = 180
+packet_gap = re.compile('0{20,}')
+
+d = RfCat()
  
 def ConfigureD(d, keyLen):
 	d.setMdmModulation(MOD_ASK_OOK)
@@ -18,6 +27,7 @@ def ConfigureD(d, keyLen):
 	d.setChannel(20)
 	d.setPower(40)
 	#d.setMaxPower()
+ConfigureD(d, 20)
  
 commands = {
 	'fan0': '1001',
@@ -26,6 +36,7 @@ commands = {
 	'fan3': '0100',
 	'light': '1000'
 }
+commands_rev = {v:k for (k,v) in commands.items()}
 dip_switches = {
 	# the dip switches in the remote
 	# bridging the pin is a 1, open is 0
@@ -35,6 +46,7 @@ dip_switches = {
 	'livingroom': '1011',
 	'diningroom': '0111'
 }
+dip_switches_rev = {v:k for (k,v) in dip_switches.items()}
 
 def encode(bin_key):
 	#print "Binary (NON PWM) key:",bin_key
@@ -56,15 +68,62 @@ def encode(bin_key):
 def send_command(bin_key, repeat=50):
 	key_packed = encode(bin_key)
 	broadcast = key_packed + '\0'*2
-	keyLen = len(key_packed)
-	global d
-	if d is None:
-		d = RfCat()
-	ConfigureD(d, keyLen)
+	radio_lock.acquire()
+	time.sleep(0.05)
+	d.lowballRestore()
+	time.sleep(0.05)
 	d.RFxmit(broadcast, repeat=50)
-	d.setModeIDLE()
+	time.sleep(0.05)
+	d.lowball(1)
+	time.sleep(0.05)
+	radio_lock.release()
 
-@bottle.post('/fans/<name>/fanspeed')
+class HideyHole(object):
+	def __init__(self, basepath):
+		self.basepath = basepath
+
+	def _key_path(self, key):
+		safe_name = key.replace('/', u'\uff0f')
+		return os.path.join(self.basepath, safe_name)
+
+	def set(self, key, value):
+		try:
+			with open(self._key_path(key), 'w') as handle:
+				handle.write(value)
+		except:
+			pass
+
+	def get(self, key, default=None):
+		try:
+			with open(self._key_path(key), 'r') as handle:
+				return handle.read()
+		except:
+			return default
+hidey_hole = HideyHole('/tmp')
+
+class rest_resource(object):
+	def __init__(self, url):
+		# handle decorator arguments
+		self.url = url
+
+	def __call__(self, func):
+		def _fetch(*args, **kwargs):
+			# called for GET
+			url = bottle.request.path
+			return hidey_hole.get(url, '')
+		_fetch = bottle.get(self.url)(_fetch)
+
+		@functools.wraps(func)
+		def _wrapped(*args, **kwargs):
+			# called for POST
+			url = bottle.request.path
+			result = func(*args, **kwargs)
+			hidey_hole.set(url, bottle.request.body.read())
+			return result
+		_wrapped = bottle.post(self.url)(_wrapped)
+		return _wrapped
+
+@rest_resource('/fans/<name>/fanspeed')
 def set_fanspeed(name):
 	if name not in dip_switches:
 		bottle.abort(404)
@@ -73,11 +132,116 @@ def set_fanspeed(name):
 	bin_key = '0%s111%s' % (dip_switches[name][::-1], commands['fan'+speed])
 	send_command(bin_key)
 
-@bottle.post('/lights/<name>')
+@rest_resource('/lights/<name>')
 def toggle_light(name):
 	if name not in dip_switches:
 		bottle.abort(404)
 	bin_key = '0%s111%s' % (dip_switches[name][::-1], commands['light'])
 	send_command(bin_key)
 
-bottle.run(host='0.0.0.0', port=3350)
+# listen for packets
+def handle_packet(packet, count):
+	location = dip_switches_rev.get(packet[4:0:-1])
+	command = commands_rev.get(packet[-4:])
+	if location is None:
+		print("Heard command for unknown location: %s" % (packet[4:0:-1],))
+	elif command is None:
+		print("Heard unknown command: %s" % (packet[-4:],))
+
+	if location is not None and command is not None:
+		if command == 'light':
+			path = '/lights/%s' % (location,)
+			current = hidey_hole.get(path)
+			new = None
+			if current == 'ON':
+				new = 'OFF'
+			if current == 'OFF':
+				new = 'ON'
+			if new is not None:
+				print("Light %s changed from %s to %s" % (location, current, new))
+				hidey_hole.set(path, new)
+			else:
+				print("Light %s toggled, previous state: %s" % (location, current))
+		elif command.startswith('fan'):
+			path = '/fans/%s/fanspeed' % (location,)
+			current = hidey_hole.get(path)
+			level = command[3]
+			if level == '0':
+				level = 'OFF'
+			print("Fan %s changed from %s to %s" % (location, current, level))
+			hidey_hole.set(path, level)
+
+def decode_hunter_packet(packet):
+	if len(packet) < 6:
+		return None
+	if packet[0] != '1':
+		return None
+	bits = []
+	for counter in range(1, len(packet), 3):
+		encoded_bit = packet[counter:counter+3]
+		if encoded_bit == '001':
+			bits.append('0')
+		elif encoded_bit == '011':
+			bits.append('1')
+		else:
+			return None
+	return ''.join(bits)
+
+def validate_packet(packet):
+	if packet is None:
+		return False
+	location = dip_switches_rev.get(packet[4:0:-1])
+	command = commands_rev.get(packet[-4:])
+	return location is not None and command is not None
+
+def sniff():
+	try:
+		d.lowball(1)
+
+		packets_seen = {}
+		while not radio_loop_stop.is_set():
+			saw_packet = False
+			try:
+				radio_lock.acquire()
+				(data, time) = d.RFrecv()	# sniff some packets
+			except:
+				print("Weird")
+				continue
+			finally:
+				radio_lock.release()
+			hex = data.encode('hex')
+			bits = bin(int(hex,16))
+			packets = packet_gap.split(bits)
+			logical_packets = [decode_hunter_packet(p) for p in packets]
+			for p in logical_packets:
+				if not validate_packet(p):
+					continue
+				count = packets_seen.get(p, 0)
+				packets_seen[p] = count + 1
+				saw_packet = True
+
+			if not saw_packet:
+				if len(packets_seen) > 0:
+					# end of transmission
+					key,count = max(packets_seen.items(), key=itemgetter(1))
+					handle_packet(key, count)
+				packets_seen.clear()
+
+	finally:
+		d.setModeIDLE()
+		d.lowballRestore()
+
+# make sure to reset the radio to not lowball if we exit
+def shutdown(*args):
+	radio_loop_stop.set()
+	sniffer.join(2)
+	sys.exit()
+signal.signal(signal.SIGINT, shutdown)
+
+radio_loop_stop = threading.Event()
+radio_lock = threading.Lock()
+sniffer = threading.Thread(target=sniff)
+sniffer.daemon = True
+sniffer.start()
+
+bottle.run(server='paste', host='0.0.0.0', port=3350)
